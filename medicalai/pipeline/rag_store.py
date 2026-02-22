@@ -1,24 +1,45 @@
 import uuid
+import os
 from base64 import b64decode
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from langchain_classic.storage.in_memory import InMemoryStore
 from langchain_classic.retrievers.multi_vector import MultiVectorRetriever
-from langchain_community.vectorstores import Chroma
+from pinecone import Pinecone, ServerlessSpec
+from langchain_pinecone import PineconeVectorStore
 from IPython.display import display, Image as IPImage
-from medicalai.chatmodel import openai_chat_model,openai_embedding
+from medicalai.chatmodel import openai_embedding
 
 
 #  RAG Storage
 # -------------------------------
 class RAGStore:
-    def __init__(self, persist_dir="./chroma_db"):
+    def __init__(
+        self,
+        index_name="vision-rag",
+        cloud="aws",
+        region="us-east-1",
+        dimension=1536,
+    ):
         self.store = InMemoryStore()
         self.embeddings = openai_embedding()
-        self.vectorstore = Chroma(collection_name="multi_collection",
-                                  embedding_function=self.embeddings,
-                                  persist_directory=persist_dir)
+        pinecone_api_key = os.getenv("PINECONE_API_KEY")
+        if not pinecone_api_key:
+            raise ValueError("PINECONE_API_KEY is not set in environment variables.")
+
+        pc = Pinecone(api_key=pinecone_api_key)
+        if index_name not in pc.list_indexes().names():
+            pc.create_index(
+                name=index_name,
+                dimension=dimension,
+                metric="cosine",
+                spec=ServerlessSpec(cloud=cloud, region=region),
+            )
+
+        self.vectorstore = PineconeVectorStore(
+            index_name=index_name,
+            embedding=self.embeddings,
+        )
         self.retriever = MultiVectorRetriever(vectorstore=self.vectorstore,
                                               docstore=self.store,
                                               id_key="doc_id")
@@ -41,7 +62,7 @@ class RAGStore:
 
     def query(self, question, llm):
         docs = self.retriever.invoke(question)
-        parsed = self.parse_docs(docs)
+        parsed = self.parse_docs(docs, self.store)
         context_text = "\n".join([doc.page_content for doc in parsed["texts"]])
         prompt = ChatPromptTemplate.from_template("""
 Answer ONLY using the context below.
@@ -63,9 +84,12 @@ Question:
         for doc in docs:
             doc_id = doc.metadata.get("doc_id")
             if not doc_id:
+                # Fallback for docs ingested directly into Pinecone without docstore linkage.
+                texts.append(doc)
                 continue
             original = store.mget([doc_id])[0]
             if not original:
+                texts.append(doc)
                 continue
             if original.metadata["type"] == "image":
                 try:
