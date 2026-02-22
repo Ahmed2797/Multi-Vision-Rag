@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAG PDF QA</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>RAG PDF QA</h1>
+        <form id="queryForm">
+            <input type="text" id="queryInput" placeholder="Enter your question..." required>
+            <button type="submit">Ask</button>
+        </form>
+        <div id="answerContainer">
+            <h2>Answer:</h2>
+            <p id="answerText"></p>
+        </div>
+        <div id="imagesContainer">
+            <h2>Images:</h2>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById("queryForm");
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const query = document.getElementById("queryInput").value;
+
+            const res = await fetch("/query", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query })
+            });
+
+            const data = await res.json();
+
+            // Show answer
+            document.getElementById("answerText").innerText = data.answer;
+
+            // Show images
+            const imagesContainer = document.getElementById("imagesContainer");
+            imagesContainer.innerHTML = "<h2>Images:</h2>"; // clear previous
+            if(data.images && data.images.length > 0){
+                data.images.forEach((b64, idx) => {
+                    const img = document.createElement("img");
+                    img.src = "data:image/png;base64," + b64;
+                    img.alt = `Image ${idx+1}`;
+                    img.className = "rag-image";
+                    imagesContainer.appendChild(img);
+                });
+            } else {
+                imagesContainer.innerHTML += "<p>No images found.</p>";
+            }
+        });
+    </script>
+</body>
+</html>
