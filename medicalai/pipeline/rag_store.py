@@ -9,14 +9,15 @@ from pinecone import Pinecone, ServerlessSpec
 from langchain_pinecone import PineconeVectorStore
 from IPython.display import display, Image as IPImage
 from medicalai.chatmodel import openai_embedding
+from langchain_core.messages import HumanMessage
 
 
-#  RAG Storage
-# -------------------------------
+
+
 class RAGStore:
     def __init__(
         self,
-        index_name="vision-rag",
+        index_name="vision-rag-v1",
         cloud="aws",
         region="us-east-1",
         dimension=1536,
@@ -59,24 +60,37 @@ class RAGStore:
         else:
             content = str(original_content)
         self.store.mset([(doc_id, Document(page_content=content, metadata={"doc_id": doc_id, "type": doc_type}))])
+    
 
     def query(self, question, llm):
+        # 1. This line checks Pinecone AND loads from Docstore
         docs = self.retriever.invoke(question)
+        
+        # 2. Separate text from base64 images
         parsed = self.parse_docs(docs, self.store)
+        
+        # 3. Build a multimodal message for a Vision-capable LLM
+        content = []
+        
+        # Add text context
         context_text = "\n".join([doc.page_content for doc in parsed["texts"]])
-        prompt = ChatPromptTemplate.from_template("""
-Answer ONLY using the context below.
-If the answer is not present, say "Not found in the document."
+        content.append({
+            "type": "text", 
+            "text": f"Use the following text and images to answer.\nContext: {context_text}\nQuestion: {question}"
+        })
+        
+        # Add the actual image data so the LLM can "see" it
+        for b64_img in parsed["images"]:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
+            })
 
-Context:
-{context}
-
-Question:
-{question}
-""")
-        messages = prompt.format_prompt(context=context_text, question=question).to_messages()
-        response = llm.invoke(messages)
+        # 4. Send the full multimodal payload to the LLM
+        response = llm.invoke([HumanMessage(content=content)])
+        
         return response.content, parsed
+        
 
     @staticmethod
     def parse_docs(docs,store):
