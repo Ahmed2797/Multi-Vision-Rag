@@ -2,57 +2,261 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RAG PDF QA</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision RAG AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #8bc5ff;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            color: var(--primary);
+            font-size: 2.5rem;
+            margin-bottom: 5px;
+        }
+
+        .search-area {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--primary-hover);
+        }
+
+        button:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+
+        /* Result Sections */
+        .answer-card {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 25px;
+            border-left: 5px solid var(--primary);
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-top: 0;
+            color: #334155;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .img-item {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+            transition: transform 0.2s;
+        }
+
+        .img-item:hover {
+            transform: scale(1.02);
+        }
+
+        .retrieved-img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .img-caption {
+            padding: 10px;
+            font-size: 0.85rem;
+            color: #64748b;
+            background: #f8fafc;
+        }
+
+        /* Utils */
+        .loader {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .hidden { display: none !important; }
+    </style>
 </head>
 <body>
+
     <div class="container">
-        <h1>RAG PDF QA</h1>
-        <form id="queryForm">
-            <input type="text" id="queryInput" placeholder="Enter your question..." required>
-            <button type="submit">Ask</button>
-        </form>
-        <div id="answerContainer">
-            <h2>Answer:</h2>
-            <p id="answerText"></p>
+        <header>
+            <h1>Vision RAG</h1>
+            <p>Your Intelligent AI Document Assistant</p>
+        </header>
+
+        <section class="search-area">
+            <form id="queryForm">
+                <div class="input-group">
+                    <input type="text" id="queryInput" placeholder="Ask about symptoms, reports, or data..." required>
+                    <button type="submit" id="submitBtn">Analyze Now</button>
+                </div>
+            </form>
+        </section>
+
+        <div id="loader" class="loader">
+            <div class="spinner"></div>
+            <p>Searching database and analyzing images...</p>
         </div>
-        <div id="imagesContainer">
-            <h2>Images:</h2>
-        </div>
+
+        <main id="resultArea" class="hidden">
+            <div class="answer-card">
+                <h3 class="section-title">AI Analysis</h3>
+                <div id="answerText"></div>
+            </div>
+
+            <div id="gallerySection" class="hidden">
+                <h3 class="section-title">Visual Evidence (Retrieved Images)</h3>
+                <div id="imageGrid" class="image-grid"></div>
+            </div>
+        </main>
     </div>
 
     <script>
-        const form = document.getElementById("queryForm");
-        form.addEventListener("submit", async (e) => {
+        const form = document.getElementById('queryForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const resultArea = document.getElementById('resultArea');
+        const gallerySection = document.getElementById('gallerySection');
+        const imageGrid = document.getElementById('imageGrid');
+
+        form.onsubmit = async (e) => {
             e.preventDefault();
-            const query = document.getElementById("queryInput").value;
+            
+            // UI States
+            submitBtn.disabled = true;
+            loader.style.display = 'block';
+            resultArea.classList.add('hidden');
+            gallerySection.classList.add('hidden');
+            imageGrid.innerHTML = '';
 
-            const res = await fetch("/query", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ query })
-            });
-
-            const data = await res.json();
-
-            // Show answer
-            document.getElementById("answerText").innerText = data.answer;
-
-            // Show images
-            const imagesContainer = document.getElementById("imagesContainer");
-            imagesContainer.innerHTML = "<h2>Images:</h2>"; // clear previous
-            if(data.images && data.images.length > 0){
-                data.images.forEach((b64, idx) => {
-                    const img = document.createElement("img");
-                    img.src = "data:image/png;base64," + b64;
-                    img.alt = `Image ${idx+1}`;
-                    img.className = "rag-image";
-                    imagesContainer.appendChild(img);
+            try {
+                const query = document.getElementById('queryInput').value;
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
                 });
-            } else {
-                imagesContainer.innerHTML += "<p>No images found.</p>";
+
+                if (!response.ok) throw new Error('Server response error');
+
+                const data = await response.json();
+                
+                // Render Markdown Answer
+                document.getElementById('answerText').innerHTML = marked.parse(data.answer);
+
+                // Process Images
+                if (data.images && data.images.length > 0) {
+                    gallerySection.classList.remove('hidden');
+                    data.images.forEach((imgData, index) => {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'img-item';
+                        
+                        // Clean Base64 Data
+                        let cleanB64 = imgData.trim().replace(/^b['"]|['"]$/g, '').replace(/\s/g, '');
+                        const finalSrc = cleanB64.startsWith('data:image') ? cleanB64 : `data:image/png;base64,${cleanB64}`;
+
+                        wrapper.innerHTML = `
+                            <img src="${finalSrc}" class="retrieved-img" alt="AI Evidence" onerror="this.parentElement.innerHTML='<p style=padding:20px;color:red;>Image Load Failed</p>'">
+                            <div class="img-caption">Source Evidence #${index + 1}</div>
+                        `;
+                        imageGrid.appendChild(wrapper);
+                    });
+                }
+
+                resultArea.classList.remove('hidden');
+            } catch (err) {
+                console.error(err);
+                alert("Something went wrong. Please check if the server is running.");
+            } finally {
+                loader.style.display = 'none';
+                submitBtn.disabled = false;
             }
-        });
+        };
     </script>
 </body>
 </html>
